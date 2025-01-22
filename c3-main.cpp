@@ -207,18 +207,35 @@ int main(){
 			voxelGrid.setLeafSize(leafSize, leafSize, leafSize);
 			voxelGrid.filter(*cloudFiltered);
 
-			// Use ICP or NDT for scan matching to find the pose transformation
-			pcl::IterativeClosestPoint<PointT, PointT> icp;
-			icp.setInputSource(cloudFiltered);
-			icp.setInputTarget(mapCloud);
-			pcl::PointCloud<PointT> Final;
-			icp.align(Final);
-			if (icp.hasConverged()) {
-				pose = getPose(icp.getFinalTransformation());
+			// Calculate the transformation matrix for pose matching using NDT or ICP
+			Eigen::Matrix4d transformMatrix;
+			if (scmAlgoId == 0) {  // NDT
+				// Set the maximum number of iterations
+				int maxIterations = 4; // 60 // 4; 5; 10; 20; 25; 50; 60; 100;
+				// Set the minimum transformation difference for termination conditions
+				double minTransformDiff = 1e-4;  // 1e-6 // 1e-1; 1e-2; 1e-3; 1e-4; 1e-5; 1e-6; 1e-7;
+				// Calculate the final transformation matrix to match the predicted pose with Lidar measurements
+				transformMatrix = performNDTMatching(mapCloud, cloudFiltered, predPose, minTransformDiff, maxIterations);
+			} else {  // ICP
+				// Set the maximum number of iterations
+				int maxIterations = 16; // 16 // 4; 5; 10; 15; 20; 50;
+				// Set the minimum transformation difference for termination conditions
+				double minTransformDiff = 1e-4;  // 1e-1; 1e-2; 1e-3; 1e-4; 1e-5; 1e-6; 1e-7;        
+				// Calculate the final transformation matrix to match the predicted pose with Lidar measurements
+				transformMatrix = performICPMatching(mapCloud, cloudFiltered, predPose, minTransformDiff, maxIterations);
 			}
 
-			// Transform scan so it aligns with ego's actual pose and render that scan
-			pcl::transformPointCloud(*scanCloud, *scanCloud, pose.transform);
+			// Calculate the current pose based on the transformation matrix from ICP or NDT
+			predPose = calculatePose(transformMatrix);
+
+			// Trigger the Kalman Filter update cycle with the latest measurements
+			if (useUKF) {
+				vehicle_ukf.UpdateCycle(predPose, trueVelocity, trueSteeringAngle, t);
+			}
+
+			// Transform the scan to align with the vehicle's actual pose and render the scan
+			PointCloudT::Ptr transformedScan(new PointCloudT);
+			pcl::transformPointCloud(*cloudFiltered, *transformedScan, transformMatrix);
 			viewer->removePointCloud("scan");
 			renderPointCloud(viewer, scanCloud, "scan", Color(1,0,0));
 
