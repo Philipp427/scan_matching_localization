@@ -100,73 +100,110 @@ void drawCar(Pose pose, int num, Color color, double alpha, pcl::visualization::
 }
 
 
-Eigen::Matrix4d performICP(PointCloudT::Ptr target, PointCloudT::Ptr source, Pose startingPose){
+/**
+ * @brief Perform Iterative Closest Point (ICP) algorithm to align the source point cloud to the target point cloud.
+ * 
+ * This function uses the ICP algorithm to find the best alignment between the source and target point clouds.
+ * It initializes the source point cloud with a given starting pose, applies the ICP algorithm, and returns the
+ * transformation matrix that aligns the source to the target.
+ * 
+ * @param target The target point cloud to which the source point cloud will be aligned.
+ * @param source The source point cloud that will be aligned to the target.
+ * @param startingPose The initial pose of the source point cloud.
+ * @return Eigen::Matrix4d The transformation matrix that aligns the source point cloud to the target point cloud.
+ */
+Eigen::Matrix4d performICP(PointCloudT::Ptr target, PointCloudT::Ptr source, Pose startingPose) {
  
-    // Defining a rotation matrix and translation vector
+    // Initialize the transformation matrix to identity
     Eigen::Matrix4d transformation_matrix = Eigen::Matrix4d::Identity();
  
-    // align source with starting pose
+    // Align the source point cloud with the starting pose
     Eigen::Matrix4d initTransform = transform3D(startingPose.rotation.yaw, startingPose.rotation.pitch, startingPose.rotation.roll, startingPose.position.x, startingPose.position.y, startingPose.position.z);
     PointCloudT::Ptr transformSource (new PointCloudT);
-    pcl::transformPointCloud (*source,* transformSource, initTransform);
+    pcl::transformPointCloud(*source, *transformSource, initTransform);
  
-
-     
+    // Start the timer
     pcl::console::TicToc time;
-    time.tic ();
+    time.tic();
+    
+    // Set up the ICP algorithm
     pcl::IterativeClosestPoint<PointT, PointT> icp;
-
-    icp.setMaximumIterations (8);
-    icp.setInputSource (transformSource);
-    icp.setInputTarget (target);
-    icp.setMaxCorrespondenceDistance (2.0);
-    icp.setTransformationEpsilon(1e-4);
-    //icp.setEuclideanFitnessEpsilon(2);
-    icp.setRANSACOutlierRejectionThreshold(10);
+    icp.setMaximumIterations(8); // Set the maximum number of iterations
+    icp.setInputSource(transformSource); // Set the source point cloud
+    icp.setInputTarget(target); // Set the target point cloud
+    icp.setMaxCorrespondenceDistance(2.0); // Set the maximum correspondence distance
+    icp.setTransformationEpsilon(1e-4); // Set the transformation epsilon (convergence criteria)
+    icp.setRANSACOutlierRejectionThreshold(10); // Set the RANSAC outlier rejection threshold
  
-    PointCloudT::Ptr cloud_icp (new PointCloudT);  // ICP output point cloud
-    icp.align (*cloud_icp);
-    //std::cout << "Applied " << iterations << " ICP iteration(s) in " << time.toc () << " ms" << std::endl;
+    // Perform the ICP alignment
+    PointCloudT::Ptr cloud_icp (new PointCloudT); // ICP output point cloud
+    icp.align(*cloud_icp);
  
-    if (icp.hasConverged ())
-    {
-        //std::cout << "\nICP has converged, score is " << icp.getFitnessScore () << std::endl;
-        transformation_matrix = icp.getFinalTransformation ().cast<double>();
-        transformation_matrix =  transformation_matrix * initTransform;
+    // Check if the ICP algorithm has converged
+    if (icp.hasConverged()) {
+        // Get the final transformation matrix
+        transformation_matrix = icp.getFinalTransformation().cast<double>();
+        // Combine with the initial transformation
+        transformation_matrix = transformation_matrix * initTransform;
+        // Print the transformation matrix
         print4x4Matrix(transformation_matrix);
  
         return transformation_matrix;
+    } else {
+        // Print a warning if ICP did not converge
+        std::cout << "WARNING: ICP did not converge" << std::endl;
     }
-    else
-        cout << "WARNING: ICP did not converge" << endl;
+    
     return transformation_matrix;
- 
 }
 
+/**
+ * @brief Perform Normal Distributions Transform (NDT) algorithm to align the target point cloud to the initial pose.
+ * 
+ * This function uses the NDT algorithm to find the best alignment between the target point cloud and an initial pose.
+ * It initializes the target point cloud with a given starting pose, applies the NDT algorithm, and returns the
+ * transformation matrix that aligns the target to the initial pose.
+ * 
+ * @param ndt The NDT object configured with the necessary parameters.
+ * @param target The target point cloud that will be aligned to the initial pose.
+ * @param startingPose The initial pose of the target point cloud.
+ * @return Eigen::Matrix4d The transformation matrix that aligns the target point cloud to the initial pose.
+ */
 Eigen::Matrix4d performNDT(
-	pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt, 
-	PointCloudT::Ptr target, 
-	Pose startingPose){
+    pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt, 
+    PointCloudT::Ptr target, 
+    Pose startingPose) {
  
-	Eigen::Matrix4d transformation_matrix = Eigen::Matrix4d::Identity();
+    // Initialize the transformation matrix to identity
+    Eigen::Matrix4d transformation_matrix = Eigen::Matrix4d::Identity();
 
-    Eigen::Matrix4f init_guess = transform3D(startingPose.rotation.yaw, startingPose.rotation.pitch, startingPose.rotation.roll, startingPose.position.x, startingPose.position.y, startingPose.position.z).cast<float>();
+    // Create the initial guess transformation matrix from the starting pose
+    Eigen::Matrix4f init_guess = transform3D(
+        startingPose.rotation.yaw, 
+        startingPose.rotation.pitch, 
+        startingPose.rotation.roll, 
+        startingPose.position.x, 
+        startingPose.position.y, 
+        startingPose.position.z
+    ).cast<float>();
 
-	pcl::console::TicToc time;
-    time.tic ();
+    // Start the timer
+    pcl::console::TicToc time;
+    time.tic();
  
-    // Setting max number of registration iterations.
-    ndt.setMaximumIterations (8);
-	ndt.setInputSource(target);
+    // Set the maximum number of registration iterations
+    ndt.setMaximumIterations(8);
+    ndt.setInputSource(target); // Set the target point cloud
      
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ndt (new pcl::PointCloud<pcl::PointXYZ>);
-    ndt.align (*cloud_ndt, init_guess);
+    // Perform the NDT alignment
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ndt(new pcl::PointCloud<pcl::PointXYZ>);
+    ndt.align(*cloud_ndt, init_guess);
  
-    //cout << "Normal Distributions Transform has converged:" << ndt.hasConverged () << " score: " << ndt.getFitnessScore () <<  " time: " << time.toc() <<  " ms" << endl;
- 
-	if(ndt.hasConverged()) {
-    	transformation_matrix = ndt.getFinalTransformation ().cast<double>();
-	}
+    // Check if the NDT algorithm has converged
+    if (ndt.hasConverged()) {
+        // Get the final transformation matrix
+        transformation_matrix = ndt.getFinalTransformation().cast<double>();
+    }
  
     return transformation_matrix;
 }
