@@ -116,13 +116,13 @@ Eigen::Matrix4d performICP(PointCloudT::Ptr target, PointCloudT::Ptr source, Pos
     time.tic ();
     pcl::IterativeClosestPoint<PointT, PointT> icp;
 
-    icp.setMaximumIterations (120);
+    icp.setMaximumIterations (8);
     icp.setInputSource (transformSource);
     icp.setInputTarget (target);
-    icp.setMaxCorrespondenceDistance (5);
+    icp.setMaxCorrespondenceDistance (2.0);
     icp.setTransformationEpsilon(1e-4);
-    icp.setEuclideanFitnessEpsilon(2);
-    icp.setRANSACOutlierRejectionThreshold(0.2);
+    //icp.setEuclideanFitnessEpsilon(2);
+    icp.setRANSACOutlierRejectionThreshold(10);
  
     PointCloudT::Ptr cloud_icp (new PointCloudT);  // ICP output point cloud
     icp.align (*cloud_icp);
@@ -133,15 +133,8 @@ Eigen::Matrix4d performICP(PointCloudT::Ptr target, PointCloudT::Ptr source, Pos
         //std::cout << "\nICP has converged, score is " << icp.getFitnessScore () << std::endl;
         transformation_matrix = icp.getFinalTransformation ().cast<double>();
         transformation_matrix =  transformation_matrix * initTransform;
-        //print4x4Matrix(transformation_matrix);
+        print4x4Matrix(transformation_matrix);
  
- 
-        /*
-        PointCloudT::Ptr corrected_scan (new PointCloudT);
-        pcl::transformPointCloud (*source,* corrected_scan, transformation_matrix);
-        if( count == 1)
-            renderPointCloud(viewer, corrected_scan, "corrected_scan_"+to_string(count), Color(0,1,1)); // render corrected scan
-        */
         return transformation_matrix;
     }
     else
@@ -163,8 +156,8 @@ Eigen::Matrix4d performNDT(
     time.tic ();
  
     // Setting max number of registration iterations.
-    ndt.setMaximumIterations (35);
-	ndt.setInputSource(target)
+    ndt.setMaximumIterations (8);
+	ndt.setInputSource(target);
      
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ndt (new pcl::PointCloud<pcl::PointXYZ>);
     ndt.align (*cloud_ndt, init_guess);
@@ -294,8 +287,7 @@ int main(){
 			new_scan = true;
 
 			if(scanInit) {
-				pose.position = truePose.position;
-				pose.rotation = truePose.rotation;
+				pose = truePose;
 				scanInit = false;
 			}
 
@@ -307,6 +299,8 @@ int main(){
 			vg.setMinimumPointsNumberPerVoxel(1);
 			typename pcl::PointCloud<PointT>::Ptr cloudFiltered (new pcl::PointCloud<PointT>);
 			vg.filter(*cloudFiltered);
+
+			pose = Pose(Point(vehicle->GetTransform().location.x, vehicle->GetTransform().location.y, vehicle->GetTransform().location.z), Rotate(vehicle->GetTransform().rotation.yaw * pi/180, vehicle->GetTransform().rotation.pitch * pi/180, vehicle->GetTransform().rotation.roll * pi/180)) - poseRef;
 
 			// TODO: Find pose transform by using ICP or NDT matching
 			Eigen::Matrix4d transformedMatrix;
